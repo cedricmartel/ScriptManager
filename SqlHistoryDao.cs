@@ -29,7 +29,7 @@ namespace ScriptManager
                 if (ex is SqlException)
                 {
                     // on créé la table si elle n'existe pas
-                    Program.LogAndInfos("Erreur : la table " + LogTableName + " n'existe pas, elle va etre créée");
+                    LogHelper.LogAndInfo("WARNING : table " + LogTableName + " does not exists and will be created");
                     try
                     {
                         using (var conn = new SqlConnection(connectionString))
@@ -42,15 +42,15 @@ namespace ScriptManager
                     }
                     catch (Exception e)
                     {
-                        Program.LogAndInfos("Erreur lors de la création de la table " + LogTableName);
-                        Program.Logger.Error(e.FormatForLog());
+                        LogHelper.LogAndInfo("ERROR while creating table " + LogTableName);
+                        LogHelper.LogError(e.FormatForLog());
                         throw;
                     }
                 }
                 else
                 {
-                    Program.LogAndInfos("Erreur : impossible de lire la table " + LogTableName);
-                    Program.Logger.Error(ex.FormatForLog());
+                    LogHelper.LogAndInfo("ERROR : cannot read table " + LogTableName);
+                    LogHelper.LogError(ex.FormatForLog());
                     throw;
                 }
             }

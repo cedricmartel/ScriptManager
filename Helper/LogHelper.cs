@@ -51,6 +51,13 @@ namespace ScriptManager.Helper
                 Logger.Info(exp.GetLog());
         }
 
+        public static void LogAndInfo(string text)
+        {
+            Logger.Info(text);
+            Console.WriteLine(text);
+        }
+
+
         public static void LogInfo(this Exception exp, string message)
         {
             Logger.Info(message);
