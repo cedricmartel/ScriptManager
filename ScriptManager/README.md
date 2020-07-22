@@ -1,5 +1,4 @@
 # scriptmanager
-script manager is a tool that allows differential script execution on a sql server database
 
 USAGE: ScriptManager.exe /csName NomDeLaChaineDeConnection [/sqlPath pathToSqlDirectory] [/envCode forcedEnvCode] [/csFile pathToConfFile] [/disableScriptDiff 1] [/version versionString]
 ex: ScriptManager.exe /csName "MyCsName" /sqlPath "../../SQL/" /envCode "RCT" /csFile "../../Database.Config" /version "3.1.0#85"
@@ -15,8 +14,3 @@ TODO
  - write a better readme
  - finish changing texts & comments from french to english!
  - make some sample
-
- 
- # scriptrunner
- scriptrunner is a binary that simply run script on a database
- 
