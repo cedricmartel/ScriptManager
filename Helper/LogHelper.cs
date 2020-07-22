@@ -2,7 +2,7 @@
 using System.Text;
 using log4net;
 
-namespace ScriptManager.Helper
+namespace ScriptRunner.Helper
 {
     /// <summary>
     /// Extension of the class Eception

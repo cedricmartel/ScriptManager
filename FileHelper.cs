@@ -1,27 +1,20 @@
 ﻿using System.IO;
-using System.Text;
-using ScriptManager.Helper;
 
-namespace ScriptManager
+namespace ScriptRunner
 {
     public class FileHelper
     {
+
+        /// <summary>
+        /// Read content of file, utf8 only
+        /// </summary>
+        /// <param name="fichier"></param>
+        /// <returns></returns>
         public static string GetFileContent(string fichier)
         {
-            Encoding fileEncoding = EncodingHelper.GetType(fichier);
-            string scriptContent;
-            if (fileEncoding.Equals(Encoding.UTF8))
-            {
-                // on lit le fichier utf8
-                FileInfo file = new FileInfo(fichier);
-                scriptContent = file.OpenText().ReadToEnd();
-            }
-            else
-            {
-                // on fait comme on peut
-                scriptContent = File.ReadAllText(fichier, fileEncoding);
-            }
-            return scriptContent;
+            // on lit le fichier utf8
+            FileInfo file = new FileInfo(fichier);
+            return file.OpenText().ReadToEnd();
         }
 
 

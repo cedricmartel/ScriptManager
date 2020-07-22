@@ -1,24 +1,21 @@
-﻿using Microsoft.SqlServer.Management.Common;
-using Microsoft.SqlServer.Management.Smo;
-using ScriptManager.Helper;
-using ScriptManager.Model;
+﻿using ScriptRunner.Helper;
 using System;
 using System.Collections.Generic;
 using System.Configuration;
+using System.Data;
 using System.Data.SqlClient;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
-namespace ScriptManager
+namespace ScriptRunner
 {
     public class ScriptRunner
     {
         internal string ConnectionStringCode = string.Empty;
         internal string SqlPath = string.Empty;
+        internal string SqlFile = string.Empty;
         internal string CsFile = null;
-        internal bool DisableScriptDiff = false;
-        internal string DefaultSqlPath = string.Empty;
-        internal string Version = null;
 
         internal void RunScripts()
         {
@@ -61,34 +58,36 @@ namespace ScriptManager
             Console.WriteLine("Using the following connection string: ");
             Console.WriteLine(connectionString);
 
-
-            // création de la table de logs si nécessaire
-            if (!DisableScriptDiff)
-                SqlHistoryDao.CreateLogTableIfNotExists(connectionString);
-
-            // récupération liste des scripts déjà passés
-            List<HistoriqueScriptSql> scriptsDejaPasses = new List<HistoriqueScriptSql>();
-            if (!DisableScriptDiff)
-                scriptsDejaPasses = SqlHistoryDao.ListScriptsDejaPasses(connectionString);
-
             // list scripts files to be run, with the correct order 
-            List<string> listFichiers;
-            try
+            List<string> listFichiers = new List<string>();
+
+            if (!string.IsNullOrEmpty(SqlPath))
             {
-                listFichiers = ScriptDetector.FindFilesInDirectory(SqlPath);
+                try
+                {
+                    listFichiers = ScriptDetector.FindFilesInDirectory(SqlPath);
+                }
+                catch (Exception ex)
+                {
+                    LogHelper.LogAndInfo("ERROR : " + ex.FormatForLog());
+                    return;
+                }
             }
-            catch (Exception ex)
+            else if (!string.IsNullOrEmpty(SqlFile))
             {
-                LogHelper.LogAndInfo("ERROR : " + ex.FormatForLog());
+                listFichiers.Add(SqlFile);
+            }
+
+            if (listFichiers == null || !listFichiers.Any(x => !string.IsNullOrEmpty(x)))
+            {
+                LogHelper.LogAndInfo("ERROR: No file to run");
                 return;
             }
-
-            List<string> fichiersAPasser = listFichiers.Where(x => !scriptsDejaPasses.Any(y => FileHelper.FormatFileString(y.NomScript) == FileHelper.FormatFileString(x.Replace(SqlPath, DefaultSqlPath)))).ToList();
 
             #region run scripts and log execution
 
             int nbScript = 0, nbErreurs = 0, nbSucces = 0;
-            foreach (string fichier in fichiersAPasser)
+            foreach (string fichier in listFichiers)
             {
                 nbScript++;
                 LogHelper.LogAndInfo("RUN SCRIPT " + fichier);
@@ -97,12 +96,21 @@ namespace ScriptManager
                 {
                     string scriptContent = FileHelper.GetFileContent(fichier);
 
-                    var connection = new ServerConnection(new SqlConnection(connectionString))
+                    using (SqlConnection connection = new SqlConnection(connectionString))
                     {
-                        StatementTimeout = 2592000
-                    };
-                    var server = new Server(connection);
-                    server.ConnectionContext.ExecuteNonQuery(scriptContent);
+                        connection.Open();
+
+                        var scripts = SplitSqlStatements(scriptContent);
+                        foreach (var script in scripts)
+                        {
+                            nbScript++;
+                            var command = new SqlCommand(script, connection)
+                            {
+                                CommandTimeout = 172800 // 48 heures
+                            };
+                            command.ExecuteNonQuery();
+                        }
+                    }
                     nbSucces++;
                 }
                 catch (Exception ex)
@@ -111,42 +119,38 @@ namespace ScriptManager
                     LogHelper.LogAndInfo("ERROR running script " + fichier + " " + messageErreur);
                     nbErreurs++;
                 }
-                if (!DisableScriptDiff)
-                    SqlHistoryDao.InsertLog(FileHelper.FormatFileString(fichier.Replace(SqlPath, DefaultSqlPath)), messageErreur, connectionString);
             }
 
             LogHelper.LogAndInfo(string.Format("FINISHED : {0} scripts run, {1} success and {2} errors", nbScript, nbSucces, nbErreurs));
 
-            // update version information
-            if (!string.IsNullOrEmpty(Version))
-            {
-                try
-                {
-                    string versionScript = @"
-    DECLARE @Version VARCHAR(100) = '" + Version.Replace("'", "''") + @"';
-    IF NOT EXISTS (SELECT 1 FROM SYS.EXTENDED_PROPERTIES WHERE [major_id] = 0 AND [minor_id] = 0 AND [name] = N'Version')
-        EXEC sp_addextendedproperty @name = 'Version', @value = @Version;
-    ELSE IF EXISTS (SELECT 1 FROM SYS.EXTENDED_PROPERTIES WHERE [major_id] = 0 AND [minor_id] = 0 AND [name] = N'Version' AND value < @Version)
-        EXEC sp_updateextendedproperty @name = 'Version', @value = @Version; 
-    ";
 
-                    using (var conn = new SqlConnection(connectionString))
-                    {
-                        conn.Open();
-                        var cmd = new SqlCommand(versionScript, conn);
-                        cmd.ExecuteNonQuery();
-                        conn.Close();
-                    }
-                    LogHelper.LogAndInfo("Version number has been set to " + Version);
-                }
-                catch (Exception ex)
-                {
-                    var error = ex.FormatForLog();
-                    LogHelper.LogAndInfo("ERROR updating version number information: " + error);
-                }
-
-            }
             #endregion
+        }
+
+        /// <summary>
+        /// split sql script by go (statemetns cannot be run with a go inside in c#)
+        /// </summary>
+        private static List<string> SplitSqlStatements(string sqlScript)
+        {
+            // Split by "GO" statements
+            var statements = Regex.Split(
+                    sqlScript,
+                    @"[\t ]*GO.*\n",
+                    RegexOptions.Multiline |
+                    RegexOptions.IgnorePatternWhitespace |
+                    RegexOptions.IgnoreCase);
+
+            // Remove empties, trim, and return
+            return statements.Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+        }
+
+        private void OnInfoMessageGenerated(object sender, SqlInfoMessageEventArgs args)
+        {
+            foreach (SqlError err in args.Errors)
+            {
+                LogHelper.LogAndInfo(string.Format("Msg {0}, Level {1}, State {2}, Line {3}", err.Number, err.Class, err.State, err.LineNumber));
+                LogHelper.LogAndInfo(string.Format("{0}", err.Message));
+            }
         }
     }
 }

@@ -2,7 +2,7 @@
 using System.IO;
 using System.Text;
 
-namespace ScriptManager.Helper
+namespace ScriptRunner.Helper
 {
     public class EncodingHelper
     {

@@ -1,4 +1,4 @@
-﻿namespace ScriptManager.Helper
+﻿namespace ScriptRunner.Helper
 {
     public static class IntHelper
     {
