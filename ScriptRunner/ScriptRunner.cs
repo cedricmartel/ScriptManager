@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Configuration;
 using System.Data;
 using System.Data.SqlClient;
+using System.IO;
 using System.Linq;
 using System.Xml.Linq;
 
@@ -12,50 +13,62 @@ namespace ScriptRunner
     public class ScriptRunner
     {
         internal string ConnectionStringCode = string.Empty;
+        internal string ConnectionStringValue = string.Empty;
         internal string SqlPath = string.Empty;
         internal string SqlFile = string.Empty;
         internal string CsFile = null;
+        public string SqlOutput = null;
+        public bool Verbose = true;
 
         internal void RunScripts()
         {
             // récupération chaine de connection
-            string connectionString = null;
-            if (!string.IsNullOrEmpty(CsFile))
+            string connectionString = ConnectionStringValue;
+
+            if (string.IsNullOrEmpty(connectionString))
             {
-                // recuperation connectionString depuis le fichier 
-                var doc = XDocument.Load(CsFile);
-                foreach (var el in doc.Root.Elements())
+                if (!string.IsNullOrEmpty(CsFile))
                 {
-                    if (el.Name != "add")
-                        continue;
-                    var name = el.Attribute("name");
-                    if (name?.Value != ConnectionStringCode)
-                        continue;
-                    connectionString = el.Attribute("connectionString")?.Value;
-                    break;
+                    // recuperation connectionString depuis le fichier 
+                    var doc = XDocument.Load(CsFile);
+                    foreach (var el in doc.Root.Elements())
+                    {
+                        if (el.Name != "add")
+                            continue;
+                        var name = el.Attribute("name");
+                        if (name?.Value != ConnectionStringCode)
+                            continue;
+                        connectionString = el.Attribute("connectionString")?.Value;
+                        break;
+                    }
+
+                    if (string.IsNullOrEmpty(connectionString))
+                    {
+                        Console.WriteLine("Error: No connection string " + ConnectionStringCode + " found in file " +
+                                          CsFile);
+                        return;
+                    }
+                }
+                else
+                {
+                    if (ConfigurationManager.ConnectionStrings.Count == 0)
+                    {
+                        Console.WriteLine("Error: No connection string have been found in Config/Database.config");
+                        return;
+                    }
+
+                    connectionString = ConfigurationManager.ConnectionStrings[ConnectionStringCode].ConnectionString;
                 }
 
-                if (string.IsNullOrEmpty(connectionString))
-                {
-                    Console.WriteLine("Error: No connection string " + ConnectionStringCode + " found in file " + CsFile);
-                    return;
-                }
+                if (connectionString.Contains("provider connection string=\""))
+                    connectionString = connectionString.Split(new[] {"\""}, StringSplitOptions.None)[1];
             }
-            else
+
+            if (Verbose)
             {
-                if (ConfigurationManager.ConnectionStrings.Count == 0)
-                {
-                    Console.WriteLine("Error: No connection string have been found in Config/Database.config");
-                    return;
-                }
-                connectionString = ConfigurationManager.ConnectionStrings[ConnectionStringCode].ConnectionString;
+                Console.WriteLine("Using the following connection string: ");
+                Console.WriteLine(connectionString);
             }
-
-            if (connectionString.Contains("provider connection string=\""))
-                connectionString = connectionString.Split(new[] { "\"" }, StringSplitOptions.None)[1];
-
-            Console.WriteLine("Using the following connection string: ");
-            Console.WriteLine(connectionString);
 
             // list scripts files to be run, with the correct order 
             List<string> listFichiers = new List<string>();
@@ -100,14 +113,32 @@ namespace ScriptRunner
                         connection.Open();
                         //connection.InfoMessage += OnInfoMessageGenerated; // to view output
                         //connection.FireInfoMessageEventOnUserErrors = true;
-                        using (SqlCommand command = new SqlCommand(scriptContent, connection))
+                        using (var command = new SqlCommand(scriptContent, connection))
                         {
-                            using (SqlDataAdapter adapter = new SqlDataAdapter(command))
+                            using (var adapter = new SqlDataAdapter(command))
                             {
-                                using (DataSet set = new DataSet())
+                                using (var set = new DataSet())
                                 {
                                     adapter.Fill(set);
+
+                                    // save result eventually
+                                    if (listFichiers.Count == 1 && !string.IsNullOrEmpty(SqlOutput)
+                                        && set != null && set.Tables.Count > 0)
+                                    {
+                                        // TODO manage CSV properly, JSON, flat text
+                                        const string columnSeparator = "\t";
+                                        const string rowSeparator = "\r\n";
+                                        using (var file = new StreamWriter(SqlOutput))
+                                        {
+                                            foreach (DataRow row in set.Tables[0].Rows)
+                                            {
+                                                var line = string.Join(columnSeparator, row.ItemArray) + rowSeparator;
+                                                file.WriteLine(line);
+                                            }
+                                        }
+                                    }
                                 }
+
                             }
                         }
                     }
